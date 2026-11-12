@@ -528,6 +528,12 @@ body{background-image:radial-gradient(120% 420px at 50% -120px,var(--glow),trans
 .hl .w{background:linear-gradient(#ffec99,#ffe066)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .banner{background:linear-gradient(135deg,#3b300a,#262008);border:1px solid #4a3d10;box-shadow:none}:root:not([data-theme="light"]) .banner::before,:root:not([data-theme="light"]) .banner::after{display:none}:root:not([data-theme="light"]) .mark{background:none}:root:not([data-theme="light"]) .cell{box-shadow:none}:root:not([data-theme="light"]) .chip.placed{background:#6a560d;color:#fff}:root:not([data-theme="light"]) .score{background:var(--card)}}
 :root[data-theme="dark"] .banner{background:linear-gradient(135deg,#3b300a,#262008);border:1px solid #4a3d10;box-shadow:none}:root[data-theme="dark"] .banner::before,:root[data-theme="dark"] .banner::after{display:none}:root[data-theme="dark"] .mark{background:none}:root[data-theme="dark"] .cell{box-shadow:none}:root[data-theme="dark"] .chip.placed{background:#6a560d;color:#fff}:root[data-theme="dark"] .score{background:var(--card)}
+
+/* ===== 필기 중 화면 고정 ===== */
+#padc,#padc.penmode{touch-action:none!important;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:contain}
+.pad,.pad *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html.drawing,html.drawing body{overscroll-behavior:none}
+html.drawing *{-webkit-user-select:none!important;user-select:none!important}
 </style></head><body>
 
 <main class="app" id="app"></main>
@@ -1053,7 +1059,7 @@ if(st.padOpen===undefined)st.padOpen=window.matchMedia('(min-width:820px)').matc
 function padHTML(){
   const B=(k,l)=>`<button data-pad="${k}" aria-pressed="${pad.tool===k}">${l}</button>`;
   if(!st.padOpen)return `<aside class="pad off" id="pad"><div class="pad-h"><b>✎ 필기장</b><span class="hint">펜이나 손가락으로 메모</span><div class="pad-t"><button data-pad="toggle">열기</button></div></div></aside>`;
-  return `<aside class="pad" id="pad"><div class="pad-h"><b>✎ 필기장</b><span class="hint">${pad.pen?'펜으로 쓰고 손가락으로 화면을 움직여요 · ':''}다음 문제로 가면 자동으로 지워져요</span>
+  return `<aside class="pad" id="pad"><div class="pad-h"><b>✎ 필기장</b><span class="hint">${pad.pen?'펜으로만 써져요 (손바닥은 무시) · ':''}다음 문제로 가면 자동으로 지워져요</span>
   <div class="pad-t">${B('pen','펜')}${B('red','빨강')}${B('erase','지우개')}<button data-pad="undo">되돌리기</button><button data-pad="clear">모두 지우기</button><button data-pad="toggle">접기</button></div></div>
   <canvas id="padc" aria-label="필기 공간"></canvas></aside>`;
 }
@@ -1075,9 +1081,13 @@ function padInit(fresh){
   if(!c._b){c._b=1;fresh=true;
     const pt=e=>{const r=c.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top,e.pointerType==='pen'?(e.pressure||.5):.5]};
     c.addEventListener('pointerdown',e=>{
-      if(e.pointerType==='pen'&&!pad.pen){pad.pen=true;c.classList.add('penmode');const h=$('#pad .hint');if(h)h.textContent='펜으로 쓰고 손가락으로 화면을 움직여요 · 다음 문제로 가면 자동으로 지워져요'}
+      if(e.pointerType==='pen'&&!pad.pen){pad.pen=true;const h=$('#pad .hint');if(h)h.textContent='펜으로만 써져요 (손바닥은 무시) · 다음 문제로 가면 자동으로 지워져요'}
+      e.preventDefault();
       if(pad.pen&&e.pointerType==='touch')return;
-      e.preventDefault();try{c.setPointerCapture(e.pointerId)}catch(_){}
+      if(pad.cur)return;
+      const ae=document.activeElement;if(ae&&ae.blur&&ae!==document.body)ae.blur();
+      const sl=window.getSelection&&window.getSelection();if(sl&&sl.removeAllRanges)sl.removeAllRanges();
+      document.documentElement.classList.add('drawing');try{c.setPointerCapture(e.pointerId)}catch(_){}
       const t=pad.tool;pad.cur={c:t==='red'?'red':'ink',e:t==='erase',p:[pt(e)],id:e.pointerId};pad.strokes.push(pad.cur);
       padSeg(c.getContext('2d'),pad.cur,pad.cur.p[0],pad.cur.p[0],padInk(pad.cur.c));
     });
@@ -1086,11 +1096,12 @@ function padInit(fresh){
       const ctx=c.getContext('2d');const ink=padInk(s.c);
       (e.getCoalescedEvents&&e.getCoalescedEvents().length?e.getCoalescedEvents():[e]).forEach(ev=>{const p=pt(ev);const a=s.p[s.p.length-1];if(Math.abs(p[0]-a[0])+Math.abs(p[1]-a[1])<.6)return;s.p.push(p);padSeg(ctx,s,a,p,ink)});
     });
-    const end=e=>{if(pad.cur&&pad.cur.id===e.pointerId)pad.cur=null};
+    const end=e=>{if(pad.cur&&pad.cur.id===e.pointerId){pad.cur=null;document.documentElement.classList.remove('drawing')}};
+    c.addEventListener('lostpointercapture',end);
     c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
-    c.addEventListener('touchstart',e=>{if(!pad.pen)e.preventDefault()},{passive:false});
+    ['touchstart','touchmove','touchend','gesturestart','gesturechange','selectstart','dragstart','wheel'].forEach(n=>c.addEventListener(n,e=>{if(n!=='wheel'||pad.cur)e.preventDefault()},{passive:false}));
+    const padEl=$('#pad');if(padEl)padEl.addEventListener('selectstart',e=>e.preventDefault());
     c.addEventListener('contextmenu',e=>e.preventDefault());
-    if(pad.pen)c.classList.add('penmode');
   }
   if(fresh||changed)padRedraw();
 }

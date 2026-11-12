@@ -687,9 +687,10 @@ function buildFixed(s,kreq){
   return finishQ(s,kk,gr,pool,'sheet',pool.filter(p=>p.tf).length);
 }
 const FUNC=new Set('the a an of in to and that for with from by on at as its their his her our or but than into over under about across during because while is are was were'.split(' '));
+const isArt=t=>/^(a|an|the)$/i.test(t.w);
 function tryFull(s,k){ // 시험처럼: 한 문제에 배열할 단어는 약 13~17개, 관사·전치사 등 몇 단어는 미리 적혀 있음
   const tk=s.tk,n=tk.length;
-  const L=rnd(16,21);let ws=0,we=n-1,tf=null;
+  const L=rnd(17,22);let ws=0,we=n-1,tf=null;
   const candAll=[];tk.forEach((t,i)=>{if(isTf(t))candAll.push(i)});
   if(candAll.length<k)return null;
   for(let at=0;at<30&&!tf;at++){
@@ -705,8 +706,10 @@ function tryFull(s,k){ // 시험처럼: 한 문제에 배열할 단어는 약 13
     if(pick.length===k)tf=pick;
   }
   if(!tf)return null;
-  const len=we-ws+1;const f=len<8?1:Math.max(2,Math.round(len*.2));
+  const len=we-ws+1;const f0=len<8?1:Math.max(2,Math.round(len*.2));
   const fixed=new Set();
+  for(let i=ws;i<=we;i++)if(isArt(tk[i]))fixed.add(i); // 관사는 항상 제시
+  const f=Math.max(fixed.size+(len<8?0:1),f0);
   const okF=i=>!tf.includes(i)&&!fixed.has(i)&&!fixed.has(i-1)&&!fixed.has(i+1);
   const all=[];for(let i=ws;i<=we;i++)all.push(i);
   for(const i of shuffle(all.filter(i=>FUNC.has(tk[i].w.toLowerCase())))){if(fixed.size>=f)break;if(okF(i))fixed.add(i)}
@@ -732,6 +735,8 @@ function buildQ(s,k,mode,opts){
   for(let kk=k-1;kk>=0&&!spec;kk--)spec=tryFull(s,kk)||trySheet(s,kk,15); // 변형할 단어가 부족한 문장도 빠짐없이 출제
   if(!spec)return null;
   const pool=[];const groups=[];const tfSet=new Set(spec.tf);
+  const rs=[];spec.ranges.forEach(([a,e])=>{let x=-1;for(let i=a;i<=e+1;i++){if(i<=e&&!isArt(s.tk[i])){if(x<0)x=i}else if(x>=0){rs.push([x,i-1]);x=-1}}});
+  if(!rs.length)return null;spec.ranges=rs;
   spec.ranges.forEach(([a,e],gi)=>{
     const g={a,e,n:e-a+1};groups.push(g);
     for(let x=a;x<=e;x++)pool.push(mkItem(s,pool.length,gi,g,x,x,tfSet.has(x)?[x]:[]));
@@ -823,7 +828,7 @@ function questionHTML(q){
       out+=pu(t.pre);
       if(pi.tf){
         const v=q.edits[pid]!=null?q.edits[pid]:pi.text;
-        out+=`<span class="chip placed tf${cls}${sel}"><input data-edit="${pid}" value="${esc(v)}" style="width:${Math.max(4,v.length+1.5)}ch" ${q.checked?'readonly':''} autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="어형 변형 입력"><button class="x" data-sel="${pid}" aria-label="이 단어 고르기" ${q.checked?'hidden':''}>⋮</button></span>`;
+        out+=`<span class="chip placed tf${cls}${sel}"><input data-edit="${pid}" value="${esc(v)}" style="width:${Math.max(4,v.length+1.5)}ch" ${q.checked?'readonly':''} autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="어형 변형 입력"><button class="x" data-sel="${pid}" aria-label="빼기" ${q.checked?'hidden':''}>×</button></span>`;
       }else out+=`<button class="chip placed${cls}${sel}" data-sel="${pid}" ${q.checked?'disabled':''}>${esc(pi.text)}</button>`;
       out+=pu(last.post)+' ';
     }else{
@@ -1026,7 +1031,7 @@ function runBody(){
 }
 function selBarHTML(q){
   if(q.checked)return '';
-  if(q.sel==null||startOf(q,q.sel)==null){q.sel=null;return Object.keys(q.at).length?'<p class="selhint">단어를 끌어서 두 단어 사이에 놓으면 그 사이에 끼워져요 · 놓은 단어를 눌러도 고칠 수 있어요</p>':''}
+  if(q.sel==null||startOf(q,q.sel)==null){q.sel=null;return Object.keys(q.at).length?'<p class="selhint">단어를 끌어서 두 단어 사이에 놓으면 끼워져요 · 놓은 단어를 누르면 빠져요</p>':''}
   return `<div class="selbar"><p><b>${esc(placedText(q,q.sel))}</b> 선택 · 아래 단어 카드를 누르면 이 단어 <b>앞에 끼워 넣고</b> 뒤 단어는 자동으로 한 칸씩 밀려요</p>
   <div class="selbtns"><button data-selpull>빼고 뒤 단어 당기기</button><button data-selrm>이 단어만 빼기</button><button data-selx>취소</button></div></div>`;
 }
@@ -1346,7 +1351,7 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('button,[data-tf]');if(!t){return}
   const d=t.dataset;
   if(t.hasAttribute('data-snd')){store.sound=store.sound===false;save();render();snd('tap');return}
-  if(!t.hasAttribute('data-check'))snd(d.pool!==undefined?'place':d.rm!==undefined?'remove':'tap');
+  if(!t.hasAttribute('data-check'))snd(d.pool!==undefined?'place':(d.rm!==undefined||d.sel!==undefined)?'remove':'tap');
   if(d.tab){openTab(d.tab);return}
   if(d.cls!==undefined){store.cls=store.cls===d.cls?'':d.cls;save();render();return}
       
@@ -1380,7 +1385,7 @@ document.addEventListener('click',e=>{
   if(t.hasAttribute('data-quitno')){const c=$('#confirm');if(c)c.remove();return}
   if(d.pool!==undefined){placeWord(+d.pool);return}
   if(d.rm!==undefined){removeWord(+d.rm);return}
-  if(d.sel!==undefined){const q=st.run&&st.run.qs[st.run.i];if(!q||q.checked)return;if(q.sel===+d.sel)removeWord(+d.sel);else{q.sel=+d.sel;renderQ()}return}
+  if(d.sel!==undefined){const q=st.run&&st.run.qs[st.run.i];if(!q||q.checked)return;removeWord(+d.sel);return}
   if(t.hasAttribute('data-selrm')){const q=st.run.qs[st.run.i];if(q.sel!=null)removeWord(q.sel);return}
   if(t.hasAttribute('data-selpull')){pullWord();return}
   if(t.hasAttribute('data-selx')){st.run.qs[st.run.i].sel=null;renderQ();return}
